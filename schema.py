@@ -23,7 +23,7 @@ class UserRegistrationSchema(ma.SQLAlchemySchema):
         model = User
 
     id = fields.Integer()
-    name = fields.String(required=True)
+    name = fields.String(required=True, validate=validate.Length(5))
     email = fields.String(required=True, validate=validate.Email())
     password = fields.String(required=True,
                              validate=validate.Length(6),
@@ -60,10 +60,11 @@ class DocSchema(ma.SQLAlchemySchema):
     name = fields.String(required=True)
     slug = fields.String(required=True)
     text = fields.String()
-    approved = fields.Boolean()
+    approved = fields.Boolean(dump_only=True)
     creator_id = fields.Integer()
     creator = fields.Nested(UserSchema(only=("id", "name")), dump_only=True)
     car_id = fields.Integer(required=True)
     car = fields.Nested(CarSchema(only=("id", "name")), dump_only=True)
     part_id = fields.Integer(required=True)
-    part = fields.Nested(PartSchema(only=("id", "name")), dump_only=True)
+    # part = fields.Nested(PartSchema(only=("id", "name")), dump_only=True)
+    part = fields.Nested(PartSchema(), dump_only=True)

@@ -4,6 +4,7 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from model import db, Car, User
 from schema import CarSchema
 from helpers.upload_file import upload_image, rm_obj_images
+from decorators import roles_required
 
 car_schema = CarSchema()
 cars_schema = CarSchema(many=True)
@@ -65,14 +66,15 @@ class CarsResourse(Resource):
 class CarResourse(Resource):
     def get(self):
         parser = reqparse.RequestParser()
-        parser.add_argument(name='id', type=int, required=True)
-        try:
-            args = parser.parse_args()
-            car_id = args['id']
-        except Exception as error:
-            return {'message': 'Parse args error: ' + str(error)}, 400
-
-        car = Car.query.filter_by(id=car_id).first()
+        parser.add_argument(name='id', type=int)
+        parser.add_argument(name='slug')
+        args = parser.parse_args()
+        if args["id"]:
+            car = Car.query.filter_by(id=args["id"]).first()
+        elif args["slug"]:
+            car = Car.query.filter_by(slug=args["slug"]).first()
+        else:
+            return {'message': 'Id or slug required'}, 400
         if not car:
             return {'message': 'Car does not found'}, 400
         car_data = car_schema.dump(car)
@@ -123,9 +125,20 @@ class CarResourse(Resource):
         user = User.query.filter_by(id=user_id).first()
         if not user or (not user.is_admin() and user_id != car.creator_id):
             return {'message': 'Admin role or creator required'}, 403
+        if car.approved and not user.is_admin():
+            return {'message': 'For approved object admin role required'}, 403
         # update car
         for key in ('name', 'slug'):
             if args[key]:
+                # verify unique
+                duplicate = Car.query \
+                    .filter(
+                        Car.id != args['id'],
+                        getattr(Car, key) == args[key]
+                    ).first()
+                if duplicate:
+                    return {'message':
+                            'Уже есть автомобиль с данным наименованием'}, 409
                 setattr(car, key, args[key])
         # update image
         image = args['image']
@@ -139,7 +152,8 @@ class CarResourse(Resource):
             car.img_src = url
 
         db.session.commit()
-        return {}, 204
+        car_data = car_schema.dump(car)
+        return {'status': 'success', 'data': car_data}, 200
 
     @jwt_required
     def delete(self):
@@ -156,5 +170,17 @@ class CarResourse(Resource):
         db.session.delete(car)
         # delete image
         rm_obj_images(obj_type='car', obj_id=car.id)
+        db.session.commit()
+        return {}, 204
+
+
+class CarApproveResourse(Resource):
+    @jwt_required
+    @roles_required('admin')
+    def put(self, id):
+        car = Car.query.filter_by(id=id).first()
+        if not car:
+            return {'message': 'Car does not found'}, 400
+        car.approved = not car.approved
         db.session.commit()
         return {}, 204

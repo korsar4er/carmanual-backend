@@ -2,9 +2,10 @@ from flask import request
 from flask_restful import Resource, reqparse, inputs
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from marshmallow import ValidationError
-from model import db, Doc, User
+from model import db, Doc, User, Car, Part
 from schema import DocSchema
 from helpers.upload_file import rm_obj_images
+from decorators import roles_required
 
 doc_schema = DocSchema()
 docs_schema = DocSchema(many=True, exclude=('text',))
@@ -16,12 +17,12 @@ paginate_parser.add_argument('per_page', type=int)
 filter_parser = reqparse.RequestParser()
 filter_parser.add_argument('creator_id', type=int)
 filter_parser.add_argument('approved', type=inputs.boolean)
-filter_parser.add_argument('car_id', type=int)
+filter_parser.add_argument('car_slug')
 
 doc_parser = reqparse.RequestParser()
-doc_parser.add_argument('slug', required=True)
-doc_parser.add_argument('car_id', type=int, required=True)
-doc_parser.add_argument('part_id', type=int, required=True)
+doc_parser.add_argument('doc_slug', required=True)
+doc_parser.add_argument('car_slug', required=True)
+doc_parser.add_argument('part_slug', required=True)
 
 
 class DocsResource(Resource):
@@ -32,7 +33,12 @@ class DocsResource(Resource):
         query = Doc.query
         for key, value in filter_args.items():
             if value is not None:
-                if type(value) == bool:
+                if key == 'car_slug':
+                    car = Car.query.filter_by(slug=value).first()
+                    if not car:
+                        return {'message': 'Car doesnt found by slug'}, 400
+                    query = query.filter(Doc.car_id == car.id)
+                elif type(value) == bool:
                     query = query.filter(getattr(Doc, key).is_(value))
                 else:
                     query = query.filter(getattr(Doc, key) == value)
@@ -80,7 +86,14 @@ class DocByIdResource(Resource):
 class DocResource(Resource):
     def get(self):
         args = doc_parser.parse_args()
-        doc = Doc.query.filter_by(**args).first()
+        car = Car.query.filter_by(slug=args['car_slug']).first()
+        if not car:
+            return {'message': 'Car does not found by car_slug'}, 400
+        part = Part.query.filter_by(slug=args['part_slug']).first()
+        if not part:
+            return {'message': 'Part does not found by part_slug'}, 400
+        doc = Doc.query.filter_by(
+            slug=args['doc_slug'], car_id=car.id, part_id=part.id).first()
         if not doc:
             return {'message': 'Doc does not found'}, 400
         doc_data = doc_schema.dump(doc)
@@ -132,5 +145,17 @@ class DocResource(Resource):
             return {'message': 'Admin role or creator required'}, 403
         for key, value in json_data.items():
             setattr(doc, key, value)
+        db.session.commit()
+        return {}, 204
+
+
+class DocApproveResourse(Resource):
+    @jwt_required
+    @roles_required('admin')
+    def put(self, id):
+        doc = Doc.query.filter_by(id=id).first()
+        if not doc:
+            return {'message': 'Doc does not found'}, 400
+        doc.approved = not doc.approved
         db.session.commit()
         return {}, 204

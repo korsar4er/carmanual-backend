@@ -72,7 +72,7 @@ class Login(Resource):
             return {'message': 'Login and password does not found'}, 400
         user = User.query.filter_by(name=login).first()
         if not user:
-            return {'message': 'Пользователь не найден'}, 401
+            return {'message': 'Неверный логин-пароль'}, 401
         if not user.confirmed:
             return {'message': 'Пользователь не подтвержден'}, 401
         if user.disabled:
@@ -90,7 +90,7 @@ class Login(Resource):
             except Exception as e:
                 return {'message': 'Create token error: ' + str(e)}, 500
         else:
-            return {'message': 'Неверный пароль'}, 401
+            return {'message': 'Неверный логин-пароль'}, 401
 
 
 class Confirm(Resource):
